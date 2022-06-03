@@ -1,6 +1,7 @@
 import http from "http";
 import express from "express";
-import SocketIO from "socket.io";
+import { Server } from "socket.io";
+import { instrument } from "@socket.io/admin-ui";
 import { parse } from "path";
 
 const app = express();
@@ -15,13 +16,42 @@ app.get("/*", (req, res) => res.redirect("/"));
 const handleListen = () => console.log(`Listening on http://localhost:3000`);
 
 const httpServer = http.createServer(app);
-const wsServer = SocketIO(httpServer);
+const wsServer = new Server(httpServer, {
+    cors: {
+      origin: ["https://admin.socket.io"],
+      credentials: true
+    }
+});
 
+instrument(wsServer, {
+    auth: false
+});
+
+function publicRooms() {
+    const {
+        sockets: {
+            adapter: { sids, rooms },
+        },
+    } = wsServer;
+    const publicRooms = [];
+    rooms.forEach((_, key) => {
+        if(sids.get(key) === undefined) {
+            publicRooms.push(key);
+        }
+    });
+    return publicRooms;
+}
+
+function countRoom(roomName) {
+    return wsServer.sockets.adapter.rooms.get(roomName)?.size;
+}
 
 wsServer.on("connection", (socket) => {
     socket["nickname"] = "Anonymous";
+    wsServer.sockets.emit("roon_change", publicRooms());
     socket.onAny((event) => {
         console.log(`Socket Event: ${event}`);
+        console.log(wsServer.sockets.adapter);
     });
 
     socket.on("enter_room", (roomName, done) => {
@@ -29,13 +59,18 @@ wsServer.on("connection", (socket) => {
         done();
         socket
             .to(roomName)
-            .emit("welcome", socket.nickname);
+            .emit("welcome", socket.nickname, countRoom(roomName));
+        wsServer.sockets.emit("roon_change", publicRooms());
     });
 
     socket.on("disconnecting", () => {
         socket
             .rooms
-            .forEach((room) => socket.to(room).emit("bye", socket.nickname));
+            .forEach((room) => socket.to(room).emit("bye", socket.nickname, countRoom(room) -1 ));
+    });
+
+    socket.on("disconnect", () => {
+        wsServer.sockets.emit("roon_change", publicRooms());
     });
 
     socket.on("new_message", (msg, room, done) => {
