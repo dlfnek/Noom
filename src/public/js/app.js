@@ -145,9 +145,14 @@ socket.on("offer", async (offer) => { //peer 2
     console.log("sent the answer");
 });
 
-socket.on("answer", answer => { //peer 1
+socket.on("answer", (answer) => { //peer 1
     console.log("received the answer");
     myPeerConnection.setRemoteDescription(answer);
+});
+
+socket.on("ice", (ice) => {
+    console.log("received icecandidate");
+    myPeerConnection.addIceCandidate(ice);
 });
 
 // RTC Code
@@ -155,12 +160,18 @@ socket.on("answer", answer => { //peer 1
 function makeConnection() {
     myPeerConnection = new RTCPeerConnection();
     myPeerConnection.addEventListener("icecandidate", handleIce);
+    myPeerConnection.addEventListener("addstream", handleAddStream);
     myStream
         .getTracks()
         .forEach(track => myPeerConnection.addTrack(track, myStream))
 }
 
 function handleIce(data) {
-    console.log("got icecandidate");
-    console.log(data);
+    console.log("sent icecandidate");
+    socket.emit("ice", data.candidate, roomName);
+}
+
+function handleAddStream(data) {
+    const peerFace = document.getElementById("peerFace");
+    peerFace.srcObject = data.stream;
 }
